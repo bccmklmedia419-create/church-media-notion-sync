@@ -1,14 +1,15 @@
-import admin from "firebase-admin";
+import { initializeApp, cert } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
 import crypto from "node:crypto";
 
 const NOTION_TOKEN = process.env.NOTION_TOKEN;
 const CONTENT_DB = process.env.NOTION_CONTENT_DB;
 const PEOPLE_DB = process.env.NOTION_PEOPLE_DB;
 
-admin.initializeApp({
-  credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)),
+initializeApp({
+  credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)),
 });
-const db = admin.firestore();
+const db = getFirestore();
 
 // Notion 栏位名称，必须和 Notion 里的一模一样
 const P = {
