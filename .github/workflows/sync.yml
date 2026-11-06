@@ -29,3 +29,10 @@ jobs:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_CONTENT_DB: ${{ secrets.NOTION_CONTENT_DB }}
           NOTION_PEOPLE_DB: ${{ secrets.NOTION_PEOPLE_DB }}
+      - name: sync equipment
+        if: always()
+        run: node equipment.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_EQUIPMENT_DB: ${{ secrets.NOTION_EQUIPMENT_DB }}
