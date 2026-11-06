@@ -20,6 +20,7 @@ const P = {
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kuala_Lumpur" }).format(new Date());
 
 async function notion(path, method = "GET", body) {
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -106,6 +107,7 @@ async function main() {
     .where("status", "in", ["approved", "returning"])
     .get();
   loans.docs.forEach((d) => {
+    if ((d.data().startDate || "") > today) return;
     (d.data().items || []).forEach((i) => {
       outMap[i.itemId] = (outMap[i.itemId] || 0) + (i.qty || 0);
     });
