@@ -106,15 +106,27 @@ async function main() {
     // 没勾 Active 的略过（例如 [Deprecated] 那几行）
     if (props[P.active] && props[P.active].checkbox === false) continue;
 
-    const groups = names(props[P.group]);
+        const groups = names(props[P.group]);
     const depts = names(props[P.dept]);
     const roles = names(props[P.role]);
 
-    // 只处理 Social Media 而且分到 Team A 或 Team B 的人
-    if (!depts.includes("Social Media")) continue;
-    const smTeam = groups.includes("Team A") ? "A" : groups.includes("Team B") ? "B" : "";
-    if (!smTeam) continue;
-    const smLeader = roles.includes("Team Leader");
+    // SM Team A/B、MCP Team A/B/C；旧写法 Team A/B 且部门是 Social Media 也当成 SM
+    let smTeam = "";
+    let mcpTeam = "";
+    for (const g of groups) {
+      const mm = g.trim().match(/^(SM|MCP)\s*Team\s*([A-C])$/i);
+      if (mm) {
+        const kind = mm[1].toUpperCase();
+        const letter = mm[2].toUpperCase();
+        if (kind === "MCP") mcpTeam = letter;
+        else if (letter !== "C") smTeam = letter;
+        continue;
+      }
+      const old = g.trim().match(/^Team\s*([AB])$/i);
+      if (old && depts.includes("Social Media")) smTeam = old[1].toUpperCase();
+    }
+    if (!smTeam && !mcpTeam) continue;
+    const smLeader = !!smTeam && roles.includes("Team Leader");
 
     const email = emailOf(props[P.email]);
     const m = (email && byEmail[email]) || byName[norm(name)];
@@ -124,20 +136,26 @@ async function main() {
     }
 
     const r = roster[m.uid];
-    const memberOk = m.smTeam === smTeam && !!m.smLeader === smLeader;
-    const rosterOk = r && r.smTeam === smTeam && r.name === m.name;
+    const memberOk =
+      (!smTeam || (m.smTeam === smTeam && !!m.smLeader === smLeader)) &&
+      (!mcpTeam || m.mcpTeam === mcpTeam);
+    const rosterOk = !smTeam || (r && r.smTeam === smTeam && r.name === m.name);
     if (memberOk && rosterOk) {
       same++;
       continue;
     }
 
-    if (!memberOk) {
-      await db.doc(`members/${m.uid}`).update({ smTeam, smLeader });
+    const upd = {};
+    if (smTeam) {
+      upd.smTeam = smTeam;
+      upd.smLeader = smLeader;
     }
-    if (!rosterOk) {
-      await db.doc(`roster/${m.uid}`).set({ name: m.name, smTeam });
-    }
-    console.log(`更新：${m.name} → Team ${smTeam}${smLeader ? "（组长）" : ""}`);
+    if (mcpTeam) upd.mcpTeam = mcpTeam;
+    if (!memberOk) await db.doc(`members/${m.uid}`).update(upd);
+    if (!rosterOk) await db.doc(`roster/${m.uid}`).set({ name: m.name, smTeam });
+    console.log(
+      `更新：${m.name} →${smTeam ? " SM Team " + smTeam : ""}${smLeader ? "（组长）" : ""}${mcpTeam ? " MCP Team " + mcpTeam : ""}`
+    );
     changed++;
   }
 
