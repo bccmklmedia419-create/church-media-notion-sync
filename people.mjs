@@ -141,6 +141,7 @@ async function main() {
       (!mcpTeam || m.mcpTeam === mcpTeam);
     const rosterOk = !smTeam || (r && r.smTeam === smTeam && r.name === m.name);
     if (memberOk && rosterOk) {
+      console.log(`没变：${m.name}`);
       same++;
       continue;
     }
