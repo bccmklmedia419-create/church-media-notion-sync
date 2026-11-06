@@ -15,7 +15,15 @@ jobs:
         with:
           node-version: 22
       - run: npm install firebase-admin
-      - run: node sync.mjs
+      - name: sync people
+        run: node people.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_PEOPLE_DB: ${{ secrets.NOTION_PEOPLE_DB }}
+      - name: sync content
+        if: always()
+        run: node sync.mjs
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
