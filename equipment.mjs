@@ -96,8 +96,11 @@ async function main() {
   const pages = await queryAll(EQUIPMENT_DB);
 
   const existing = {};
+  // Notion 页面 id -> app 器材文档 id（在 app 手动新增、已同步到 Notion 的器材）
+  const byNotion = {};
   (await db.collection("equipment").get()).docs.forEach((d) => {
     existing[d.id] = d.data();
+    if (d.data().notionPageId) byNotion[d.data().notionPageId] = d.id;
   });
 
   // 目前实际借出去的数量（已批准、归还待确认），按器材 id 统计
@@ -116,6 +119,7 @@ async function main() {
   let updated = 0;
   let written = 0;
   let missingQty = 0;
+  let backfilled = 0;
   const seen = new Set();
 
   for (const page of pages) {
@@ -125,10 +129,19 @@ async function main() {
     if (!name) continue;
     seen.add(page.id);
 
+    const docId = byNotion[page.id] || page.id;
+    const isMapped = docId !== page.id;
+    const old = existing[docId];
+
     const status = val(pr[P.status]);
     if (!pr[P.quantity]) missingQty++;
-    const total = Math.max(1, parseInt(val(pr[P.quantity]), 10) || 1);
-    const out = outMap[page.id] || 0;
+    const qtyRaw = val(pr[P.quantity]);
+    const total = qtyRaw
+      ? Math.max(1, parseInt(qtyRaw, 10) || 1)
+      : isMapped && old && old.total
+      ? old.total
+      : 1;
+    const out = outMap[docId] || 0;
 
     // 只有 Available（或空白），或是 app 自己借出去造成的 Checked Out，才可以借
     const free =
@@ -143,13 +156,13 @@ async function main() {
       total,
       notionStatus: status,
       blocked: !free,
-      source: "notion",
       removed: false,
+      // app 手动新增的器材保持原样，不改成「来自 Notion」
+      ...(isMapped ? { syncedName: name, syncedTotal: total } : { source: "notion" }),
     };
 
-    const old = existing[page.id];
     if (!old || Object.keys(data).some((k) => old[k] !== data[k])) {
-      await db.doc(`equipment/${page.id}`).set(data, { merge: true });
+      await db.doc(`equipment/${docId}`).set(data, { merge: true });
       updated++;
     }
 
@@ -157,22 +170,31 @@ async function main() {
     const computed = out >= total ? "Checked Out" : "Available";
     const prev = old ? old.appState : undefined;
     if (prev === undefined) {
-      await db.doc(`equipment/${page.id}`).set({ appState: computed }, { merge: true });
+      await db.doc(`equipment/${docId}`).set({ appState: computed }, { merge: true });
     } else if (prev !== computed) {
       const writable = status === "" || status === "Available" || status === "Checked Out";
       if (writable && status !== computed && (await setNotionStatus(page, computed))) {
         written++;
       }
-      await db.doc(`equipment/${page.id}`).set({ appState: computed }, { merge: true });
+      await db.doc(`equipment/${docId}`).set({ appState: computed }, { merge: true });
     }
   }
 
   // Notion 里已经删掉的器材：在 app 里隐藏，借用记录保留
   let removed = 0;
   for (const [id, old] of Object.entries(existing)) {
-    if (old.source === "notion" && !seen.has(id) && !old.removed) {
+    const pid = old.notionPageId || id;
+    if ((old.source === "notion" || old.notionPageId) && !seen.has(pid) && !old.removed) {
       await db.doc(`equipment/${id}`).set({ removed: true, blocked: true }, { merge: true });
       removed++;
+    }
+  }
+
+  // 补漏：app 手动新增、还没同步到 Notion 的器材，碰一下让 Cloud Function 去建立
+  for (const [id, old] of Object.entries(existing)) {
+    if (old.source !== "notion" && !old.notionPageId && !old.removed && old.name) {
+      await db.doc(`equipment/${id}`).set({ syncTouch: Date.now() }, { merge: true });
+      backfilled++;
     }
   }
 
@@ -180,7 +202,7 @@ async function main() {
     console.warn(`⚠ ${missingQty} 件器材没有 ${P.quantity} 栏位，数量先当成 1`);
   }
   console.log(
-    `器材同步：Notion ${seen.size} 件，更新 ${updated} 件，回写状态 ${written} 件，隐藏 ${removed} 件`
+    `器材同步：Notion ${seen.size} 件，更新 ${updated} 件，回写状态 ${written} 件，隐藏 ${removed} 件，补送到 Notion ${backfilled} 件`
   );
 }
 
