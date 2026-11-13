@@ -1,0 +1,30 @@
+name: import-notion-content
+on:
+  workflow_dispatch:
+concurrency:
+  group: sync
+  cancel-in-progress: false
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install firebase-admin
+      - name: sync people
+        run: node people.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_PEOPLE_DB: ${{ secrets.NOTION_PEOPLE_DB }}
+      - name: import content from Notion
+        if: always()
+        run: node import.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_CONTENT_DB: ${{ secrets.NOTION_CONTENT_DB }}
+          NOTION_PEOPLE_DB: ${{ secrets.NOTION_PEOPLE_DB }}
+          DRY_RUN: "1"
