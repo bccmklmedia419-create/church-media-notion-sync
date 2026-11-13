@@ -1,7 +1,5 @@
 name: sync-notion-content
 on:
-  schedule:
-    - cron: "*/5 * * * *"
   workflow_dispatch:
 concurrency:
   group: sync
