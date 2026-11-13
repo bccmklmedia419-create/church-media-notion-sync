@@ -132,6 +132,10 @@ async function main() {
         switcher = true;
         continue;
       }
+            if (/^core\s*team$/i.test(g.trim())) {
+        smTeam = "C";
+        continue;
+      }
       const mm = g.trim().match(/^(SM|MCP)\s*Team\s*([A-C])$/i);
       if (mm) {
         const kind = mm[1].toUpperCase();
