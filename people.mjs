@@ -1,5 +1,5 @@
 import { initializeApp, cert } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import { getFirestore, FieldValue } from "firebase-admin/firestore";
 
 const NOTION_TOKEN = process.env.NOTION_TOKEN;
 const PEOPLE_DB = process.env.NOTION_PEOPLE_DB;
@@ -20,6 +20,19 @@ const P = {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const norm = (s) => (s || "").trim().replace(/\s+/g, " ").toLowerCase();
+
+// Switcher：Notion 的 Group 里有「Switcher」标签，app 里这个人就有 Switcher 身份（存在 positions）。
+// true  = Notion 是准的：标签拿掉后，下次同步也会把 app 里的 Switcher 拿掉。
+// false = 只加不拿：app 里手动设的 Switcher 不会被同步拿掉。
+const REMOVE_SWITCHER_WHEN_MISSING = true;
+
+// 这个人的 Switcher 身份需不需要改：回传 "add"、"remove" 或 ""（不用改）
+function switcherAction(hasTag, m) {
+  const has = (m.positions || []).includes("switcher");
+  if (hasTag) return has ? "" : "add";
+  if (!REMOVE_SWITCHER_WHEN_MISSING) return "";
+  return has || m.mcpTeam === "Switcher" ? "remove" : "";
+}
 
 async function notion(path, method = "GET", body) {
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -113,7 +126,12 @@ async function main() {
     // SM Team A/B、MCP Team A/B/C；旧写法 Team A/B 且部门是 Social Media 也当成 SM
     let smTeam = "";
     let mcpTeam = "";
+    let switcher = false;
     for (const g of groups) {
+      if (/^switcher$/i.test(g.trim())) {
+        switcher = true;
+        continue;
+      }
       const mm = g.trim().match(/^(SM|MCP)\s*Team\s*([A-C])$/i);
       if (mm) {
         const kind = mm[1].toUpperCase();
@@ -125,11 +143,21 @@ async function main() {
       const old = g.trim().match(/^Team\s*([AB])$/i);
       if (old && depts.includes("Social Media")) smTeam = old[1].toUpperCase();
     }
-    if (!smTeam && !mcpTeam) continue;
     const smLeader = !!smTeam && roles.includes("Team Leader");
 
     const email = emailOf(props[P.email]);
     const m = (email && byEmail[email]) || byName[norm(name)];
+    // 没有任何小组标签：只有这个人在 app 里还留着 Switcher 时，才需要拿掉
+    if (!(smTeam || mcpTeam || switcher)) {
+      if (m && switcherAction(false, m) === "remove") {
+        const u = { positions: FieldValue.arrayRemove("switcher") };
+        if (m.mcpTeam === "Switcher") u.mcpTeam = "";
+        await db.doc(`members/${m.uid}`).update(u);
+        console.log(`更新：${m.name} →（移除 Switcher）`);
+        changed++;
+      }
+      continue;
+    }
     if (!m) {
       unmatched.push(name);
       continue;
@@ -140,7 +168,8 @@ async function main() {
       (!smTeam || (m.smTeam === smTeam && !!m.smLeader === smLeader)) &&
       (!mcpTeam || m.mcpTeam === mcpTeam);
     const rosterOk = !smTeam || (r && r.smTeam === smTeam && r.name === m.name);
-    if (memberOk && rosterOk) {
+    const swAction = switcherAction(switcher, m);
+    if (memberOk && rosterOk && !swAction) {
       console.log(`没变：${m.name}`);
       same++;
       continue;
@@ -152,10 +181,15 @@ async function main() {
       upd.smLeader = smLeader;
     }
     if (mcpTeam) upd.mcpTeam = mcpTeam;
-    if (!memberOk) await db.doc(`members/${m.uid}`).update(upd);
+    if (swAction === "add") upd.positions = FieldValue.arrayUnion("switcher");
+    if (swAction === "remove") {
+      upd.positions = FieldValue.arrayRemove("switcher");
+      if (m.mcpTeam === "Switcher" && !upd.mcpTeam) upd.mcpTeam = "";
+    }
+    if (!memberOk || swAction) await db.doc(`members/${m.uid}`).update(upd);
     if (!rosterOk) await db.doc(`roster/${m.uid}`).set({ name: m.name, smTeam });
     console.log(
-      `更新：${m.name} →${smTeam ? " SM Team " + smTeam : ""}${smLeader ? "（组长）" : ""}${mcpTeam ? " MCP Team " + mcpTeam : ""}`
+      `更新：${m.name} →${smTeam ? " SM Team " + smTeam : ""}${smLeader ? "（组长）" : ""}${mcpTeam ? " MCP Team " + mcpTeam : ""}${swAction === "add" ? " Switcher" : swAction === "remove" ? "（移除 Switcher）" : ""}`
     );
     changed++;
   }
