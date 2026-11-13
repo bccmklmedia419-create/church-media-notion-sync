@@ -111,7 +111,7 @@ async function main() {
 
     const props = {
       [contentTitle]: { title: [{ text: { content: c.title } }] },
-      [P.campaign]: { select: { name: `Team ${c.team}` } },
+      [P.campaign]: { select: { name: c.team === "C" ? "Core Team" : `Team ${c.team}` } },
       [P.type]: { select: c.type ? { name: c.type } : null },
       [P.status]: { select: c.status ? { name: c.status } : null },
       [P.post]: date(c.postDate),
