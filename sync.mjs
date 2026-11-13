@@ -76,6 +76,14 @@ const text = (s) => ({
   rich_text: s ? [{ text: { content: String(s).slice(0, 1900) } }] : [],
 });
 
+// 负责人名单（旧资料只有一个人，也读得到）
+const namesOf = (c, role) =>
+  Array.isArray(c[`${role}Names`])
+    ? c[`${role}Names`]
+    : c[`${role}Name`]
+    ? [c[`${role}Name`]]
+    : [];
+
 async function main() {
   const contentTitle = await titlePropName(CONTENT_DB);
   const peopleTitle = await titlePropName(PEOPLE_DB);
@@ -90,15 +98,19 @@ async function main() {
   }
 
   const warnings = [];
-  const rel = (name, title) => {
-    if (!name) return { relation: [] };
-    const id = people[norm(name)];
-    if (!id) {
-      warnings.push(`「${title}」里的「${name}」在 People 找不到，没有连上`);
-      return { relation: [] };
-    }
-    return { relation: [{ id }] };
-  };
+  // 多人：每个名字对一个 People 页面
+  const relMany = (names, title) => ({
+    relation: names
+      .map((n) => {
+        const id = people[norm(n)];
+        if (!id) {
+          warnings.push(`「${title}」里的「${n}」在 People 找不到，没有连上`);
+          return null;
+        }
+        return { id };
+      })
+      .filter(Boolean),
+  });
 
   const snap = await db.collection("contents").get();
   let created = 0;
@@ -117,8 +129,8 @@ async function main() {
       [P.post]: date(c.postDate),
       [P.shoot]: date(c.shootDate),
       [P.draft]: date(c.editDate),
-      [P.assignee]: rel(c.shooterName, c.title),
-      [P.editor]: rel(c.editorName, c.title),
+      [P.assignee]: relMany(namesOf(c, "shooter"), c.title),
+      [P.editor]: relMany(namesOf(c, "editor"), c.title),
       [P.notes]: text(c.notes),
       [P.link]: { url: c.driveLink || null },
     };
